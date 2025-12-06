@@ -17,6 +17,32 @@ CONFIG_DEST="/etc/cloudflare-ddns.env"
 
 echo "🚀 Installing Cloudflare DDNS updater..."
 
+# -----------------------------------------------------
+# 1. Dependency Check (CRITICAL STEP)
+# -----------------------------------------------------
+echo "🔍 Checking dependencies..."
+MISSING_DEPS=0
+
+for cmd in curl jq; do
+    if ! command -v $cmd &> /dev/null; then
+        echo "❌ ERROR: Required tool '$cmd' is missing."
+        MISSING_DEPS=1
+    else
+        echo "✅ Found '$cmd'"
+    fi
+done
+
+if [ $MISSING_DEPS -eq 1 ]; then
+    echo ""
+    echo "🛑 Installation Aborted!"
+    echo "You must install the missing tools before continuing."
+    echo "-----------------------------------------------------"
+    echo "👉 For Ubuntu/Debian run:  sudo apt update && sudo apt install curl jq -y"
+    echo "👉 For CentOS/RHEL run:    sudo yum install curl jq -y"
+    echo "-----------------------------------------------------"
+    exit 1
+fi
+
 # 1. Move the main script
 if [ -f "$SCRIPT_SRC" ]; then
     sudo cp "$SCRIPT_SRC" "$SCRIPT_DEST"
@@ -37,10 +63,25 @@ else
     exit 1
 fi
 
-# 2. Create Config Template (CRITICAL FIX)
+# -----------------------------------------------------
+# 3. Create Config Template (If missing)
+# -----------------------------------------------------
 if [ ! -f "$CONFIG_DEST" ]; then
     echo "⚠️  Config file not found. Creating template at $CONFIG_DEST..."
-    exit 1
+    sudo bash -c "cat > $CONFIG_DEST" <<EOF
+# Cloudflare DDNS Configuration
+CF_API_TOKEN=your_api_token_here
+CF_ZONE_ID=your_zone_id_here
+CF_DNS_RECORD_ID=your_record_id_here
+
+CF_DNS_NAME=bitone.in
+CF_TTL=600
+CF_PROXIED=false
+EOF
+    sudo chmod 600 "$CONFIG_DEST"
+    echo "✅ Created config template."
+else
+    echo "ℹ️  Config file already exists. Skipping creation."
 fi
 
 # 3. Reload systemd to recognize the new service
