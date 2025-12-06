@@ -13,12 +13,13 @@ SERVICE_SRC="./cloudflare-ddns.service"
 # Destination paths
 SCRIPT_DEST="/usr/local/bin/UpdateCloudflareDNS.sh"
 SERVICE_DEST="/etc/systemd/system/cloudflare-ddns.service"
+CONFIG_DEST="/etc/cloudflare-ddns.env"
 
 echo "🚀 Installing Cloudflare DDNS updater..."
 
 # 1. Move the main script
 if [ -f "$SCRIPT_SRC" ]; then
-    sudo mv "$SCRIPT_SRC" "$SCRIPT_DEST"
+    sudo cp "$SCRIPT_SRC" "$SCRIPT_DEST"
     sudo chmod 700 "$SCRIPT_DEST"
     echo "✅ Moved script to $SCRIPT_DEST"
 else
@@ -28,7 +29,7 @@ fi
 
 # 2. Move the service file
 if [ -f "$SERVICE_SRC" ]; then
-    sudo mv "$SERVICE_SRC" "$SERVICE_DEST"
+    sudo cp "$SERVICE_SRC" "$SERVICE_DEST"
     sudo chmod 644 "$SERVICE_DEST"
     echo "✅ Moved service file to $SERVICE_DEST"
 else
@@ -40,8 +41,6 @@ fi
 if [ ! -f "$CONFIG_DEST" ]; then
     echo "⚠️  Config file not found. Creating template at $CONFIG_DEST..."
     exit 1
-else
-    echo "ℹ️  Config file already exists. Skipping creation."
 fi
 
 # 3. Reload systemd to recognize the new service
