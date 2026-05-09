@@ -40,16 +40,6 @@ On the Overview page, scroll down to the bottom right sidebar.
 
 Copy the Zone ID.
 
-C. DNS Record ID
-Run the following command on your server to find the ID of the A record you want to update (replace variables with your actual token and zone ID):
-
-Bash
-
-curl -X GET "[https://api.cloudflare.com/client/v4/zones/YOUR_ZONE_ID/dns_records?type=A](https://api.cloudflare.com/client/v4/zones/YOUR_ZONE_ID/dns_records?type=A)" \
-     -H "Authorization: Bearer YOUR_API_TOKEN" \
-     -H "Content-Type: application/json" | jq
-Look for the "id" field inside the result.
-
 🚀 Installation
 1. Clone & Prepare
 Download the repository files to your server. Ensure you have the following files in your folder:
@@ -79,9 +69,8 @@ Ini, TOML
 
 CF_API_TOKEN=your_token_here
 CF_ZONE_ID=your_zone_id_here
-CF_DNS_RECORD_ID=your_record_id_here
 
-CF_DNS_NAME=bitone.in
+CF_DNS_NAME="bitone.in,*.bitone.in"
 CF_TTL=600
 CF_PROXIED=false
 4. Start the Service
