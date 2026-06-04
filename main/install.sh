@@ -16,7 +16,7 @@ SYSTEM_ENV_FILE="/etc/cloudflare-ddns.env"
 
 if [ -f "$LOCAL_ENV_FILE" ] && [ ! -f "$SYSTEM_ENV_FILE" ]; then
   echo "INFO: Moving local cloudflare-ddns.env to /etc/"
-  sudo mv "$LOCAL_ENV_FILE" "$SYSTEM_ENV_FILE"
+  mv "$LOCAL_ENV_FILE" "$SYSTEM_ENV_FILE"
 fi
 
 # Load Cloudflare DDNS environment file if present
