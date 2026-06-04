@@ -9,8 +9,8 @@
 #   CF_DNS_NAME       - DNS name, e.g. bitone.in,*.bitone.in,api.bitone.in" (default: "bitone.in")
 #   CF_TTL            - TTL in seconds (default: 600)
 #   CF_PROXIED        - "true" or "false" (default: "false")
-
 # Ensure Cloudflare DDNS config is in /etc
+
 LOCAL_ENV_FILE="$(dirname "$0")/cloudflare-ddns.env"
 SYSTEM_ENV_FILE="/etc/cloudflare-ddns.env"
 
@@ -19,8 +19,8 @@ if [ -f "$LOCAL_ENV_FILE" ] && [ ! -f "$SYSTEM_ENV_FILE" ]; then
   sudo mv "$LOCAL_ENV_FILE" "$SYSTEM_ENV_FILE"
 fi
 
-# Load env vars from config file if present
-ENV_FILE="/etc/cloudflare-ddns.env"
+# Load Cloudflare DDNS environment file if present
+ENV_FILE="$SYSTEM_ENV_FILE"
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   . "$ENV_FILE"
