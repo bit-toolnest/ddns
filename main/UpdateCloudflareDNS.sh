@@ -4,15 +4,23 @@
 # Requires env vars:
 #   CF_API_TOKEN      - Cloudflare API token (Zone DNS:Edit for bitone.in)
 #   CF_ZONE_ID        - Cloudflare Zone ID for bitone.in
-#   CF_DNS_RECORD_ID  - DNS record ID for the A record to update
 #
 # Optional env vars:
-#   CF_DNS_NAME       - DNS name, e.g. "bitone.in" or "home.bitone.in" (default: "bitone.in")
+#   CF_DNS_NAME       - DNS name, e.g. bitone.in,*.bitone.in,api.bitone.in" (default: "bitone.in")
 #   CF_TTL            - TTL in seconds (default: 600)
 #   CF_PROXIED        - "true" or "false" (default: "false")
+# Ensure Cloudflare DDNS config is in /etc
 
-# Load env vars from config file if present
-ENV_FILE="/etc/cloudflare-ddns.env"
+LOCAL_ENV_FILE="$(dirname "$0")/cloudflare-ddns.env"
+SYSTEM_ENV_FILE="/etc/cloudflare-ddns.env"
+
+if [ -f "$LOCAL_ENV_FILE" ] && [ ! -f "$SYSTEM_ENV_FILE" ]; then
+  echo "INFO: Moving local cloudflare-ddns.env to /etc/"
+  cp "$LOCAL_ENV_FILE" "$SYSTEM_ENV_FILE"
+fi
+
+# Load Cloudflare DDNS environment file if present
+ENV_FILE="$SYSTEM_ENV_FILE"
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   . "$ENV_FILE"
@@ -26,11 +34,11 @@ set -euo pipefail
 
 CF_API_TOKEN="${CF_API_TOKEN:-}"
 CF_ZONE_ID="${CF_ZONE_ID:-}"
-CF_DNS_RECORD_ID="${CF_DNS_RECORD_ID:-}"
 
 CF_DNS_NAME="${CF_DNS_NAME:-bitone.in}"
 TTL="${CF_TTL:-600}"
 CF_PROXIED="${CF_PROXIED:-false}"
+IFS=',' read -r -a DNS_NAMES <<< "$CF_DNS_NAME"
 
 # Check interval
 CHECK_INTERVAL_SECONDS=300  # how often to check the IP (in seconds)
@@ -39,7 +47,7 @@ CHECK_INTERVAL_SECONDS=300  # how often to check the IP (in seconds)
 LOG_FILE="/var/log/cloudflare-ddns.log"
 
 # For logging only
-DOMAIN="$CF_DNS_NAME"
+DOMAIN="${DNS_NAMES[0]}"
 
 ########################################
 #          HELPER FUNCTIONS            #
@@ -105,13 +113,54 @@ get_public_ip() {
     return 1
 }
 
+get_record_id() {
+
+    local dns_name="$1"
+
+    CF_GET_RECORD_RESPONSE=$(curl -sS -m 15 \
+        -w "HTTPSTATUS:%{http_code}" \
+        -X GET "${CF_API_BASE}/zones/${CF_ZONE_ID}/dns_records?type=A&name=${dns_name}" \
+        -H "Authorization: Bearer ${CF_API_TOKEN}" \
+        -H "Content-Type: application/json" || true)
+
+    GET_RECORD_BODY="${CF_GET_RECORD_RESPONSE%HTTPSTATUS:*}"
+    GET_RECORD_STATUS="${CF_GET_RECORD_RESPONSE##*HTTPSTATUS:}"
+
+    if [[ -z "$GET_RECORD_STATUS" || "$GET_RECORD_STATUS" == "$CF_GET_RECORD_RESPONSE" ]]; then
+        log "ERROR: Failed to get Cloudflare record ID for ${dns_name} (no HTTP status). Raw response: ${CF_GET_RECORD_RESPONSE}"
+        return 1
+    fi
+
+    if [[ "$GET_RECORD_STATUS" != "200" ]]; then
+        log "ERROR: Cloudflare record lookup returned HTTP ${GET_RECORD_STATUS}. Body: ${GET_RECORD_BODY}"
+        return 1
+    fi
+
+    CF_GET_RECORD_SUCCESS=$(echo "$GET_RECORD_BODY" | jq -r '.success // false' 2>/dev/null || echo "false")
+
+    if [[ "$CF_GET_RECORD_SUCCESS" != "true" ]]; then
+        ERRORS=$(echo "$GET_RECORD_BODY" | jq -c '.errors // []' 2>/dev/null || echo "[]")
+        log "ERROR: Cloudflare record lookup success=false. Errors: ${ERRORS}"
+        return 1
+    fi
+
+    RECORD_ID=$(echo "$GET_RECORD_BODY" | jq -r '.result[0].id // empty' 2>/dev/null || echo "")
+
+    if [[ -z "$RECORD_ID" ]]; then
+        log "ERROR: No DNS record ID found for ${dns_name}"
+        return 1
+    fi
+
+    echo "$RECORD_ID"
+}
+
 ########################################
 #          INITIAL CHECKS              #
 ########################################
 
 # Required env vars
-if [[ -z "$CF_API_TOKEN" || -z "$CF_ZONE_ID" || -z "$CF_DNS_RECORD_ID" ]]; then
-    echo "ERROR: CF_API_TOKEN, CF_ZONE_ID and CF_DNS_RECORD_ID must be set as environment variables." >&2
+if [[ -z "$CF_API_TOKEN" || -z "$CF_ZONE_ID" ]]; then
+    echo "ERROR: CF_API_TOKEN and CF_ZONE_ID must be set as environment variables." >&2
     exit 1
 fi
 
@@ -163,100 +212,64 @@ while true; do
         continue
     fi
 
-    # 2) Get current IP from Cloudflare for this record
-    log "INFO: Checking Cloudflare DNS for ${DOMAIN} (current public IP: ${NEW_IP})"
-
-    CF_GET_RESPONSE=$(curl -sS -m 15 \
-        -w "HTTPSTATUS:%{http_code}" \
-        -X GET "${CF_API_BASE}/zones/${CF_ZONE_ID}/dns_records/${CF_DNS_RECORD_ID}" \
-        -H "Authorization: Bearer ${CF_API_TOKEN}" \
-        -H "Content-Type: application/json" || true)
-
-    GET_BODY="${CF_GET_RESPONSE%HTTPSTATUS:*}"
-    GET_STATUS="${CF_GET_RESPONSE##*HTTPSTATUS:}"
-
-    if [[ -z "$GET_STATUS" || "$GET_STATUS" == "$CF_GET_RESPONSE" ]]; then
-        log "ERROR: Failed to contact Cloudflare API (no HTTP status). Raw response: ${CF_GET_RESPONSE}"
-        sleep "$CHECK_INTERVAL_SECONDS"
-        continue
-    fi
-
-    if [[ "$GET_STATUS" != "200" ]]; then
-        log "ERROR: Cloudflare GET returned HTTP $GET_STATUS. Body: ${GET_BODY}"
-        sleep "$CHECK_INTERVAL_SECONDS"
-        continue
-    fi
-
-    CF_SUCCESS=$(echo "$GET_BODY" | jq -r '.success // false' 2>/dev/null || echo "false")
-    if [[ "$CF_SUCCESS" != "true" ]]; then
-        ERRORS=$(echo "$GET_BODY" | jq -c '.errors // []' 2>/dev/null || echo "[]")
-        log "ERROR: Cloudflare GET success=false. Errors: ${ERRORS}"
-        sleep "$CHECK_INTERVAL_SECONDS"
-        continue
-    fi
-
-    CF_IP=$(echo "$GET_BODY" | jq -r '.result.content // empty' 2>/dev/null || echo "")
-
-    if [[ -z "$CF_IP" ]]; then
-        log "INFO: No existing A record content found. Treating as 0.0.0.0"
-        CF_IP="0.0.0.0"
-    fi
-
-    if ! validate_ip "$CF_IP"; then
-        log "WARN: Existing Cloudflare IP is invalid (${CF_IP}). Proceeding with update."
-    fi
-
-    if [[ "$CF_IP" == "$NEW_IP" ]]; then
-        log "INFO: Cloudflare already has IP ${CF_IP}. Updating local cache and skipping PUT."
-        CURRENT_IP="$NEW_IP"
-        sleep "$CHECK_INTERVAL_SECONDS"
-        continue
-    fi
-
     # 3) Update Cloudflare record
-    log "INFO: Updating Cloudflare A record for ${DOMAIN} from ${CF_IP} to ${NEW_IP}"
+    log "INFO: Updating Cloudflare A record for ${DOMAIN} with ${NEW_IP}"
 
-    # Build JSON payload using jq to ensure proper boolean for proxied
-    JSON_PAYLOAD=$(jq -n \
-        --arg type "A" \
-        --arg name "$CF_DNS_NAME" \
-        --arg content "$NEW_IP" \
-        --argjson ttl "$TTL" \
-        --argjson proxied "$([[ "$CF_PROXIED" == "true" ]] && echo true || echo false)" \
-        '{type:$type, name:$name, content:$content, ttl:$ttl, proxied:$proxied}')
+    for DNS_NAME in "${DNS_NAMES[@]}"; do
+        DNS_NAME="$(echo "$DNS_NAME" | xargs)"
 
-    CF_UPDATE_RESPONSE=$(curl -sS -m 15 \
-        -w "HTTPSTATUS:%{http_code}" \
-        -X PUT "${CF_API_BASE}/zones/${CF_ZONE_ID}/dns_records/${CF_DNS_RECORD_ID}" \
-        -H "Authorization: Bearer ${CF_API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "$JSON_PAYLOAD" || true)
+        DOMAIN="$DNS_NAME"
 
-    UPDATE_BODY="${CF_UPDATE_RESPONSE%HTTPSTATUS:*}"
-    UPDATE_STATUS="${CF_UPDATE_RESPONSE##*HTTPSTATUS:}"
+        log "INFO: Updating Cloudflare A record for ${DOMAIN} to ${NEW_IP}"
 
-    if [[ -z "$UPDATE_STATUS" || "$UPDATE_STATUS" == "$CF_UPDATE_RESPONSE" ]]; then
-        log "ERROR: Failed to update Cloudflare (no HTTP status). Raw response: ${CF_UPDATE_RESPONSE}"
-        sleep "$CHECK_INTERVAL_SECONDS"
-        continue
-    fi
+        CF_DNS_RECORD_ID=$(get_record_id "$DNS_NAME")
 
-    if [[ "$UPDATE_STATUS" != "200" ]]; then
-        log "ERROR: Cloudflare PUT returned HTTP ${UPDATE_STATUS}. Body: ${UPDATE_BODY}"
-        sleep "$CHECK_INTERVAL_SECONDS"
-        continue
-    fi
+        if [[ -z "$CF_DNS_RECORD_ID" ]]; then
+            log "ERROR: Skipping ${DNS_NAME}, record ID not found."
+            continue
+        fi
 
-    CF_UPDATE_SUCCESS=$(echo "$UPDATE_BODY" | jq -r '.success // false' 2>/dev/null || echo "false")
-    if [[ "$CF_UPDATE_SUCCESS" == "true" ]]; then
-        log "SUCCESS: Updated Cloudflare A record for ${DOMAIN} to ${NEW_IP}"
-        CURRENT_IP="$NEW_IP"
-    else
-        ERRORS=$(echo "$UPDATE_BODY" | jq -c '.errors // []' 2>/dev/null || echo "[]")
-        log "ERROR: Cloudflare update success=false. Errors: ${ERRORS}"
-    fi
+        JSON_PAYLOAD=$(jq -n \
+            --arg type "A" \
+            --arg name "$DNS_NAME" \
+            --arg content "$NEW_IP" \
+            --argjson ttl "$TTL" \
+            --argjson proxied "$([[ "$CF_PROXIED" == "true" ]] && echo true || echo false)" \
+            '{type:$type, name:$name, content:$content, ttl:$ttl, proxied:$proxied}')
+
+        CF_UPDATE_RESPONSE=$(curl -sS -m 15 \
+            -w "HTTPSTATUS:%{http_code}" \
+            -X PUT "${CF_API_BASE}/zones/${CF_ZONE_ID}/dns_records/${CF_DNS_RECORD_ID}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD" || true)
+
+        UPDATE_BODY="${CF_UPDATE_RESPONSE%HTTPSTATUS:*}"
+        UPDATE_STATUS="${CF_UPDATE_RESPONSE##*HTTPSTATUS:}"
+
+        if [[ -z "$UPDATE_STATUS" || "$UPDATE_STATUS" == "$CF_UPDATE_RESPONSE" ]]; then
+            log "ERROR: Failed to update Cloudflare (no HTTP status). Raw response: ${CF_UPDATE_RESPONSE}"
+            continue
+        fi
+
+        if [[ "$UPDATE_STATUS" != "200" ]]; then
+            log "ERROR: Cloudflare PUT returned HTTP ${UPDATE_STATUS}. Body: ${UPDATE_BODY}"
+            continue
+        fi
+
+        CF_UPDATE_SUCCESS=$(echo "$UPDATE_BODY" | jq -r '.success // false' 2>/dev/null || echo "false")
+
+        if [[ "$CF_UPDATE_SUCCESS" == "true" ]]; then
+            log "SUCCESS: Updated Cloudflare A record for ${DOMAIN} to ${NEW_IP}"
+            CURRENT_IP="$NEW_IP"
+        else
+            ERRORS=$(echo "$UPDATE_BODY" | jq -c '.errors // []' 2>/dev/null || echo "[]")
+            log "ERROR: Cloudflare update success=false. Errors: ${ERRORS}"
+        fi
+
+    done
+
 
     # 4) Sleep before next iteration
     sleep "$CHECK_INTERVAL_SECONDS"
 done
-
