@@ -10,6 +10,15 @@
 #   CF_TTL            - TTL in seconds (default: 600)
 #   CF_PROXIED        - "true" or "false" (default: "false")
 
+# Ensure Cloudflare DDNS config is in /etc
+LOCAL_ENV_FILE="$(dirname "$0")/cloudflare-ddns.env"
+SYSTEM_ENV_FILE="/etc/cloudflare-ddns.env"
+
+if [ -f "$LOCAL_ENV_FILE" ] && [ ! -f "$SYSTEM_ENV_FILE" ]; then
+  echo "INFO: Moving local cloudflare-ddns.env to /etc/"
+  sudo mv "$LOCAL_ENV_FILE" "$SYSTEM_ENV_FILE"
+fi
+
 # Load env vars from config file if present
 ENV_FILE="/etc/cloudflare-ddns.env"
 if [ -f "$ENV_FILE" ]; then
