@@ -64,21 +64,29 @@ else
 fi
 
 # -----------------------------------------------------
-# 3. Copy Config File from install.sh directory to /etc
+# 3. Create configuration directly in /etc
 # -----------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_CONFIG="$SCRIPT_DIR/cloudflare-ddns.env"
 CONFIG_DEST="/etc/cloudflare-ddns.env"
 
-if [ -f "$LOCAL_CONFIG" ]; then
-    echo "📄 Copying config from $LOCAL_CONFIG to $CONFIG_DEST..."
-    sudo cp "$LOCAL_CONFIG" "$CONFIG_DEST"
-    sudo chmod 600 "$CONFIG_DEST"
-    echo "✅ Config file copied."
-else
-    echo "❌ ERROR: Config file $LOCAL_CONFIG not found!"
-    exit 1
-fi
+CF_API_TOKEN="${CF_API_TOKEN:-$(read -rsp 'Enter Cloudflare API Token: ' value; echo "$value"; echo)}"
+CF_ZONE_ID="${CF_ZONE_ID:-$(read -rp 'Enter Cloudflare Zone ID: ' value; echo "$value")}"
+CF_DNS_NAME="${CF_DNS_NAME:-$(read -rp 'Enter DNS Name [bitone.in]: ' value; echo "${value:-bitone.in}")}"
+CF_PROXIED="${CF_PROXIED:-$(read -rp 'Enable Proxy (true/false) [false]: ' value; echo "${value:-false}")}"
+CF_TTL="${CF_TTL:-$(read -rp 'Enter DNS TTL [600]: ' value; echo "${value:-600}")}"
+
+echo "📄 Creating $CONFIG_DEST..."
+
+sudo tee "$CONFIG_DEST" > /dev/null <<EOF
+# Cloudflare DDNS Configuration
+CF_API_TOKEN='$CF_API_TOKEN'
+CF_ZONE_ID='$CF_ZONE_ID'
+CF_DNS_NAME='$CF_DNS_NAME'
+CF_PROXIED='$CF_PROXIED'
+CF_TTL='$CF_TTL'
+EOF
+
+sudo chmod 600 "$CONFIG_DEST"
 
 # 3. Reload systemd to recognize the new service
 sudo systemctl daemon-reload
