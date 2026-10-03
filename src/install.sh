@@ -1,18 +1,18 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "=== Dummy Installer Script ==="
-echo "This script should install all required components for the tool."
+# run-install.sh
+# Simple wrapper that calls the main installer with sudo
 
-# Example steps (replace with real commands):
-# 1. Install system packages
-#    sudo apt update && sudo apt install -y <package>
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN_INSTALL="$SCRIPT_DIR/main/install.sh"
 
-# 2. Configure environment variables
-#    echo "export TOOL_HOME=/opt/tool" | sudo tee -a /etc/environment
+: "${CF_API_TOKEN:?CF_API_TOKEN must be set before install}"
 
-# 3. Start services or background processes
-#    sudo systemctl enable tool.service
-#    sudo systemctl start tool.service
-
-echo "✅ Installation complete (dummy run)"
+if [ -f "$MAIN_INSTALL" ]; then
+  echo "Running main installer with sudo: $MAIN_INSTALL"
+  exec sudo --preserve-env bash "$MAIN_INSTALL" "$@"
+else
+  echo "ERROR: main installer not found at $MAIN_INSTALL" >&2
+  exit 1
+fi

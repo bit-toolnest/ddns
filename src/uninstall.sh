@@ -1,21 +1,16 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "=== Dummy Uninstaller Script ==="
-echo "This script should remove all components installed by install.sh."
+# run-install.sh
+# Simple wrapper that calls the main installer in a nearby folder
 
-# Example steps (replace with real commands):
-# 1. Stop services
-#    sudo systemctl stop tool.service
-#    sudo systemctl disable tool.service
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN_UNINSTALL="$SCRIPT_DIR/main/uninstall.sh"
 
-# 2. Remove system packages
-#    sudo apt remove --purge -y <package>
-
-# 3. Clean environment variables
-#    sudo sed -i '/TOOL_HOME=/d' /etc/environment
-
-# 4. Delete files and directories
-#    sudo rm -rf /opt/tool
-
-echo "✅ Uninstallation complete (dummy run)"
+if [ -x "$MAIN_UNINSTALL" ]; then
+  echo "Running main uninstaller: $MAIN_UNINSTALL"
+  exec sudo "$MAIN_UNINSTALL" "$@"
+else
+  echo "ERROR: main uninstaller not found at $MAIN_UNINSTALL" >&2
+  exit 1
+fi
