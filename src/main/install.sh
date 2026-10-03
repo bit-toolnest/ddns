@@ -71,7 +71,7 @@ CONFIG_DEST="/etc/cloudflare-ddns.env"
 
 CF_API_TOKEN="${CF_API_TOKEN:-$(read -rsp 'Enter Cloudflare API Token: ' value; echo "$value"; echo)}"
 CF_ZONE_ID="${CF_ZONE_ID:-$(read -rp 'Enter Cloudflare Zone ID: ' value; echo "$value")}"
-CF_DNS_NAME="${CF_DNS_NAME:-$(read -rp 'Enter DNS Name [bitone.in]: ' value; echo "${value:-bitone.in}")}"
+CF_DNS_NAME="${CF_DNS_NAME:-$(read -rp 'Enter DNS Name [bitone.in,*.bitone.in]: ' value; echo "${value:-bitone.in}")}"
 CF_PROXIED="${CF_PROXIED:-$(read -rp 'Enable Proxy (true/false) [false]: ' value; echo "${value:-false}")}"
 CF_TTL="${CF_TTL:-$(read -rp 'Enter DNS TTL [600]: ' value; echo "${value:-600}")}"
 
